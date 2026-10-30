@@ -1,0 +1,56 @@
+name: Render Video
+
+# Lives at .github/workflows/render-video.yml - GitHub Actions only sees it here.
+on:
+  workflow_dispatch:
+    inputs:
+      manifest:
+        description: "Path to the job manifest in this repo"
+        required: true
+        default: "jobs/example-classroom.json"
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install Python dependencies
+        run: pip install faster-whisper pillow numpy requests
+
+      - name: Cache Whisper model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: whisper-small-v1
+
+      - name: Download media for this job
+        env:
+          BUNNY_STORAGE_ZONE: ${{ secrets.BUNNY_STORAGE_ZONE }}
+          BUNNY_STORAGE_API_KEY: ${{ secrets.BUNNY_STORAGE_API_KEY }}
+          BUNNY_STORAGE_HOST: ${{ secrets.BUNNY_STORAGE_HOST }}
+        run: python scripts/fetch_media.py --manifest "${{ inputs.manifest }}" --out-dir ./local_media
+
+      - name: Build the videos
+        env:
+          WHISPER_MODEL: small
+        run: python scripts/build_video.py --manifest "${{ inputs.manifest }}" --media-dir ./local_media --out-dir ./out --preset medium
+
+      - name: Upload finished videos
+        uses: actions/upload-artifact@v4
+        with:
+          name: finished-video
+          path: |
+            out/**/*.mp4
+            out/**/*.srt
+            out/**/contact-sheet.jpg
+            out/**/plan.json
+          retention-days: 30
